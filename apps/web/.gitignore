@@ -1,0 +1,16 @@
+# Next.js build output
+.next/
+out/
+
+# Web local environment variables
+.env.local
+.env.*.local
+*.env
+
+# build / cache
+dist/
+.nx/cache/
+tmp/
+
+# OS / editor
+.DS_Store

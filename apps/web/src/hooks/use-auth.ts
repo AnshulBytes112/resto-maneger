@@ -1,0 +1,62 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { mockDb } from '@/lib/mock-api';
+
+export type Role = 'superadmin' | 'admin' | 'staff' | 'manager' | null;
+
+interface User {
+  name: string;
+  role: Role;
+}
+
+/**
+ * useAuth Hook
+ * Manages the current user session and role.
+ * In a real app, this would use Context or Zustand.
+ */
+export function useAuth() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const currentUser = await mockDb.getCurrentUser();
+        setUser(currentUser as User);
+      } catch (error) {
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    checkAuth();
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    const result = await mockDb.login(email, password);
+    if (result.success) {
+      setUser(result.user);
+      return true;
+    }
+    return false;
+  };
+
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+  };
+
+  return {
+    user,
+    isLoading,
+    login,
+    logout,
+    isSuperAdmin: user?.role === 'superadmin',
+    isAdmin: user?.role === 'admin',
+    isManager: user?.role === 'manager',
+    isStaff: user?.role === 'staff',
+  };
+}

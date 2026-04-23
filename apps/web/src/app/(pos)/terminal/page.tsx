@@ -1,0 +1,260 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { mockDb, MenuCategory, MenuItem, Table } from '@/lib/mock-api';
+import { UI_CONTENT } from '@/lib/content';
+import { MenuGrid } from '@/components/pos/menu-grid';
+import { CategoryList } from '@/components/pos/category-list';
+import { CartSummary, CartItem } from '@/components/pos/cart-summary';
+import { Loader2, Search } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+
+export default function PosTerminalPage() {
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [tables, setTables] = useState<Table[]>([]);
+  
+  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Dialog states
+  const [isTableDialogOpen, setIsTableDialogOpen] = useState(false);
+  const [isReceiptDialogOpen, setIsReceiptDialogOpen] = useState(false);
+  const [lastOrderDetails, setLastOrderDetails] = useState<any>(null);
+
+  // Load initial data
+  useEffect(() => {
+    async function loadData() {
+      const [cats, items, tbls] = await Promise.all([
+        mockDb.getMenuCategories(),
+        mockDb.getMenuItems(),
+        mockDb.getTables()
+      ]);
+      setCategories(cats);
+      setMenuItems(items);
+      setTables(tbls);
+      setIsLoading(false);
+    }
+    loadData();
+  }, []);
+
+  // Handle category change
+  useEffect(() => {
+    async function updateItems() {
+      const items = await mockDb.getMenuItems(activeCategoryId || undefined);
+      setMenuItems(items);
+    }
+    if (!isLoading) updateItems();
+  }, [activeCategoryId, isLoading]);
+
+  const handleAddItem = (item: MenuItem) => {
+    setCart(prev => {
+      const existing = prev.find(i => i.id === item.id);
+      if (existing) {
+        return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+      }
+      return [...prev, { ...item, quantity: 1 }];
+    });
+  };
+
+  const handleUpdateQuantity = (id: string, delta: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === id) {
+        const newQty = Math.max(1, item.quantity + delta);
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    }));
+  };
+
+  const handleRemoveItem = (id: string) => {
+    setCart(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleSelectTable = () => {
+    setIsTableDialogOpen(true);
+  };
+
+  const confirmTableSelection = (tableId: string | null) => {
+    setSelectedTable(tableId);
+    setIsTableDialogOpen(false);
+  };
+
+  const handlePlaceOrder = async () => {
+    if (cart.length === 0) return;
+    setIsPlacingOrder(true);
+    
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const tax = subtotal * 0.05;
+    const total = subtotal + tax;
+
+    try {
+      const orderData = {
+        items: [...cart],
+        tableId: selectedTable,
+        subtotal,
+        tax,
+        total
+      };
+
+      const result = await mockDb.createOrder(orderData);
+      
+      if (result.success) {
+        setLastOrderDetails({ orderId: result.orderId, ...orderData });
+        setIsReceiptDialogOpen(true);
+        // Reset POS state
+        setCart([]);
+        setSelectedTable(null);
+      }
+    } finally {
+      setIsPlacingOrder(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary opacity-50" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex flex-col lg:flex-row h-full gap-6 max-h-[calc(100vh-theme(spacing.24))]">
+        
+        {/* Left Area - Menu & Categories */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Search */}
+          <div className="relative mb-6">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input 
+              className="pl-12 h-14 bg-card border-none shadow-sm rounded-xl text-lg focus-visible:ring-primary"
+              placeholder={UI_CONTENT.pos.terminal.searchPlaceholder}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          {/* Categories Horizontal Scroll */}
+          <CategoryList 
+            categories={categories} 
+            activeCategoryId={activeCategoryId} 
+            onSelectCategory={setActiveCategoryId} 
+          />
+
+          {/* Menu Grid */}
+          <div className="flex-1 overflow-y-auto pr-2 pb-24 lg:pb-0">
+            <MenuGrid items={menuItems} onAddItem={handleAddItem} searchQuery={searchQuery} />
+          </div>
+        </div>
+
+        {/* Right Area - Cart */}
+        <div className="w-full lg:w-[400px] shrink-0 h-full fixed lg:relative bottom-0 left-0 right-0 lg:bottom-auto z-20 transition-transform bg-background/95 backdrop-blur lg:bg-transparent p-4 lg:p-0 border-t lg:border-none shadow-2xl lg:shadow-none animate-in slide-in-from-bottom-full lg:slide-in-from-right">
+          <div className="h-[50vh] lg:h-full pb-4 lg:pb-0">
+            <CartSummary 
+              items={cart}
+              onUpdateQuantity={handleUpdateQuantity}
+              onRemoveItem={handleRemoveItem}
+              onPlaceOrder={handlePlaceOrder}
+              isLoading={isPlacingOrder}
+              selectedTable={selectedTable}
+              onSelectTable={handleSelectTable}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Table Selection Dialog */}
+      <Dialog open={isTableDialogOpen} onOpenChange={setIsTableDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{UI_CONTENT.pos.terminal.tableSelect}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-3 gap-4 py-4">
+            <Button
+              variant={selectedTable === null ? 'default' : 'outline'}
+              className="h-24 flex flex-col gap-2 rounded-xl"
+              onClick={() => confirmTableSelection(null)}
+            >
+              <span>{UI_CONTENT.pos.terminal.toGo}</span>
+            </Button>
+            {tables.map(table => (
+              <Button
+                key={table.id}
+                variant={selectedTable === table.number ? 'default' : 'outline'}
+                disabled={table.status === 'occupied' || table.status === 'reserved'}
+                className="h-24 flex flex-col gap-2 rounded-xl relative"
+                onClick={() => confirmTableSelection(table.number)}
+              >
+                <span className="text-xl font-bold">T{table.number}</span>
+                <span className="text-xs text-muted-foreground">{table.capacity} Seats</span>
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Dialog */}
+      <Dialog open={isReceiptDialogOpen} onOpenChange={setIsReceiptDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-center text-2xl font-black text-primary">FINBOOKS</DialogTitle>
+            <DialogDescription className="text-center text-xs">
+              {UI_CONTENT.pos.terminal.orderSuccess}
+            </DialogDescription>
+          </DialogHeader>
+          {lastOrderDetails && (
+            <div className="flex flex-col gap-4 py-4 font-mono text-sm">
+              <div className="flex justify-between border-b pb-2 border-dashed border-border/50">
+                <span>Order No: {lastOrderDetails.orderId}</span>
+                <span>{lastOrderDetails.tableId ? `Table ${lastOrderDetails.tableId}` : 'Takeaway'}</span>
+              </div>
+              <div className="space-y-2">
+                {lastOrderDetails.items.map((item: CartItem) => (
+                  <div key={item.id} className="flex justify-between">
+                    <span>{item.quantity}x {item.name}</span>
+                    <span>{(item.quantity * item.price).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t pt-2 border-dashed border-border/50">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Subtotal</span>
+                  <span>{lastOrderDetails.subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Tax (5%)</span>
+                  <span>{lastOrderDetails.tax.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-border">
+                  <span>TOTAL</span>
+                  <span>{lastOrderDetails.total.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="sm:justify-between">
+            <Button variant="outline" onClick={() => setIsReceiptDialogOpen(false)}>
+              {UI_CONTENT.pos.terminal.newOrder}
+            </Button>
+            <Button onClick={() => {
+              console.log('Printing receipt...');
+              setIsReceiptDialogOpen(false);
+            }}>
+              {UI_CONTENT.pos.terminal.printReceipt}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
