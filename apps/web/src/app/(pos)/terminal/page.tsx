@@ -93,7 +93,14 @@ export default function PosTerminalPage() {
     setIsPlacingOrder(true);
     
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const tax = subtotal * 0.05;
+    
+    // Calculate tax dynamically based on item's gstRate or category default
+    const tax = cart.reduce((sum, item) => {
+      const category = categories.find(c => c.id === item.categoryId);
+      const rate = item.gstRate ?? category?.defaultGst ?? 5;
+      return sum + (item.price * item.quantity * (rate / 100));
+    }, 0);
+
     const total = subtotal + tax;
 
     try {
@@ -232,7 +239,7 @@ export default function PosTerminalPage() {
                   <span>{lastOrderDetails.subtotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Tax (5%)</span>
+                  <span>Tax</span>
                   <span>{lastOrderDetails.tax.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-border">

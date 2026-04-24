@@ -17,7 +17,8 @@ import {
   FileText, 
   Users, 
   LogOut,
-  ChevronRight
+  ChevronRight,
+  Settings
 } from 'lucide-react';
 
 const MENU_ITEMS = [
@@ -28,9 +29,14 @@ const MENU_ITEMS = [
   { icon: TableIcon, label: 'Table', href: '/admin/tables' },
   { icon: CalendarDays, label: 'Reservations', href: '/admin/reservations', badge: '1' },
   { icon: Store, label: 'Offering', href: '/admin/offering' },
+  { icon: Package, label: 'Catalog', href: '/admin/catalog' },
+  { icon: Receipt, label: 'Billing', href: '/admin/billing' },
+  { icon: FileText, label: 'Bills', href: '/admin/bills' },
   { icon: Package, label: 'Inventory', href: '/admin/inventory' },
   { icon: CreditCard, label: 'Payments', href: '/admin/payments', badge: '14' },
   { icon: FileText, label: 'Invoice', href: '/admin/invoices' },
+  { icon: Settings, label: 'GST Config', href: '/admin/settings/gst' },
+  { icon: FileText, label: 'Receipt Layout', href: '/admin/settings/receipt-layout' },
   { icon: Users, label: 'User', href: '/admin/users' },
 ];
 
