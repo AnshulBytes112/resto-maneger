@@ -72,7 +72,7 @@ export default function POSTerminal() {
   const workflowTabs = [
     { id: 'categories', label: 'POS - Categories & Items' },
     { id: 'summary', label: 'POS - Billing Summary' },
-    { id: 'gst', label: 'POS - Discount & GST' },
+    { id: 'gst', label: 'POS - Discount & GST View' },
     { id: 'payment', label: 'POS - Payment' },
     { id: 'receipt', label: 'POS - Bill Receipt' },
   ];
@@ -509,10 +509,10 @@ export default function POSTerminal() {
       case 'gst':
         return (
           <div className="flex flex-col gap-4 h-full">
-            {/* GST Rates Panel */}
+            {/* GST Rates Display */}
             <Card className="border shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg">GST Rates (Editable)</CardTitle>
+                <CardTitle className="text-lg">GST Rates (Read-Only)</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -523,8 +523,8 @@ export default function POSTerminal() {
                         <Input 
                           type="number" 
                           value={gstRates[cat.id] || cat.defaultGst}
-                          onChange={(e) => setGstRates(prev => ({ ...prev, [cat.id]: Number(e.target.value) }))}
-                          className="h-9 text-sm"
+                          disabled
+                          className="h-9 text-sm bg-gray-100"
                           min="0"
                           max="100"
                           step="0.5"
@@ -534,6 +534,9 @@ export default function POSTerminal() {
                     </div>
                   ))}
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  GST rates are configured in Settings → GST Configuration
+                </p>
               </CardContent>
             </Card>
 
@@ -801,7 +804,7 @@ export default function POSTerminal() {
                   className="w-full justify-start gap-2 h-8 text-sm"
                   onClick={() => setActiveWorkflow('gst')}
                 >
-                  <Percent size={14} /> GST Settings
+                  <Percent size={14} /> View GST Rates
                 </Button>
               </div>
             </div>
