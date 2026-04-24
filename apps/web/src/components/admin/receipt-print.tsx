@@ -35,7 +35,35 @@ export function ReceiptPrint({ data }: { data: ReceiptData }) {
   }, {} as Record<string, { base: number; gst: number }>);
 
   return (
-    <div className="receipt-print-content bg-white p-4 font-mono text-[12px] leading-relaxed text-black max-w-[400px] mx-auto print:p-0 print:m-0 print:max-w-none print:block print:w-full">
+    <div className="receipt-print-content bg-white p-4 font-mono text-[12px] leading-relaxed text-black max-w-[400px] mx-auto print:p-0 print:m-0 print:max-w-none print:block print:w-full print:static">
+      <style jsx global>{`
+        @media print {
+          /* Hide everything by default */
+          body * {
+            visibility: hidden;
+          }
+          /* Show the receipt content specifically */
+          .receipt-print-content,
+          .receipt-print-content * {
+            visibility: visible !important;
+          }
+          /* Position the receipt at the top left */
+          .receipt-print-content {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+          }
+          /* Hide the dashboard and other containers specifically to be sure */
+          .print\\:hidden, 
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
       {data.logo_url && (
         <div className="flex justify-center mb-4">
           <img src={data.logo_url} alt="Logo" className="max-h-20 object-contain grayscale" />

@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import apiClient from '@/services/apiClient';
+import { ReceiptData, ReceiptPrint } from '@/components/admin/receipt-print';
 
 type MenuCategory = {
   id: string;
@@ -62,6 +63,9 @@ export default function POSTerminal() {
   const [selectedWaiter, setSelectedWaiter] = useState('John Paul');
   const [guests, setGuests] = useState(4);
   const [activeWorkflow, setActiveWorkflow] = useState('categories');
+  const [receiptLayout, setReceiptLayout] = useState<any>(null);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +146,14 @@ export default function POSTerminal() {
           setGstRates(nextGstMap);
         } catch (e) {
           console.error('Failed to load GST config', e);
+        }
+
+        // Load receipt layout
+        try {
+          const layoutResp = await apiClient.get('/receipt-layout');
+          setReceiptLayout(layoutResp.data);
+        } catch (e) {
+          console.error('Failed to load receipt layout', e);
         }
         setIsLoading(false);
         
@@ -259,8 +271,54 @@ export default function POSTerminal() {
   };
 
   const handlePrint = () => {
-    window.print();
+    const layout = receiptLayout || {
+      header_text: 'RestoManager Hotel',
+      footer_text: 'Thank you for visiting!',
+      logo_url: null,
+      show_gst_breakdown: true
+    };
+
+    const data: ReceiptData = {
+      bill_serial_number: Number(orderId.split('-')[1]) || 1024,
+      created_at: new Date().toISOString(),
+      header_text: layout.header_text,
+      footer_text: layout.footer_text,
+      logo_url: layout.logo_url,
+      show_gst_breakdown: layout.show_gst_breakdown,
+      items: cart.map(item => {
+        const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
+        const itemSubtotal = item.price * item.quantity;
+        const itemDiscount = (discountType === 'Percentage (%)') ? (itemSubtotal * discountValue) / 100 : (discountValue * itemSubtotal / totals.subtotal);
+        const itemSubtotalAfterDiscount = itemSubtotal - itemDiscount;
+        const itemGst = (itemSubtotalAfterDiscount * itemGstRate) / 100;
+        
+        return {
+          item_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.price.toString(),
+          gst_rate: itemGstRate.toString(),
+          gst_amount: itemGst.toString(),
+          line_total: (itemSubtotalAfterDiscount + itemGst).toString()
+        };
+      }),
+      subtotal: totals.subtotal.toFixed(2),
+      gst_total: totals.totalGst.toFixed(2),
+      grand_total: totals.total.toFixed(2)
+    };
+
+    setReceiptData(data);
+    setIsReceiptOpen(true);
   };
+
+  // Effect to trigger print when receipt data is loaded and dialog is open
+  useEffect(() => {
+    if (isReceiptOpen && receiptData) {
+      const timer = setTimeout(() => {
+        window.print();
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [isReceiptOpen, receiptData]);
 
   const handleShare = (method: 'whatsapp' | 'email') => {
     const message = `Order ID: ${orderId}\nTotal: Rs ${totals.total.toFixed(2)}`;
@@ -895,45 +953,41 @@ export default function POSTerminal() {
           </div>
         </div>
 
-        <style jsx global>{`
-          @media print {
-            body * {
-              visibility: hidden;
-            }
-            .print-receipt, .print-receipt * {
-              visibility: visible;
-            }
-            .print-receipt {
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: 80mm !important;
-              box-shadow: none !important;
-              border: none !important;
-            }
-          }
-          
-          /* Custom scrollbar styles */
-          .scrollbar-thin::-webkit-scrollbar {
-            width: 6px;
-          }
-          .scrollbar-thin::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 3px;
-          }
-          .scrollbar-thin::-webkit-scrollbar-thumb {
-            background: #c1c1c1;
-            border-radius: 3px;
-          }
-          .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-            background: #a8a8a8;
-          }
-          .scrollbar-thin {
-            scrollbar-width: thin;
-            scrollbar-color: #c1c1c1 #f1f1f1;
-          }
-        `}</style>
       </DashboardLayout>
+
+      {isReceiptOpen && receiptData && (
+        <div className="fixed inset-0 z-[100] bg-white flex items-start justify-center overflow-auto p-4 md:p-10 no-print-background">
+          <div className="no-print absolute top-4 right-4 flex gap-2">
+            <Button onClick={() => window.print()}>Print Again</Button>
+            <Button variant="outline" onClick={() => setIsReceiptOpen(false)}>Close Preview</Button>
+          </div>
+          <div className="print:block">
+            <ReceiptPrint data={receiptData} />
+          </div>
+        </div>
+      )}
+
+      <style jsx global>{`
+        /* Custom scrollbar styles */
+        .scrollbar-thin::-webkit-scrollbar {
+          width: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+          background: #c1c1c1;
+          border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+          background: #a8a8a8;
+        }
+        .scrollbar-thin {
+          scrollbar-width: thin;
+          scrollbar-color: #c1c1c1 #f1f1f1;
+        }
+      `}</style>
     </RoleGuard>
   );
 }
