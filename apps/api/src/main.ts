@@ -1,4 +1,4 @@
-import express from 'express';
+import express from 'express'; // Trigger rebuild
 import cors from 'cors';
 import * as path from 'path';
 import dotenv from 'dotenv';
@@ -8,6 +8,7 @@ import { itemsRouter } from './items/items.routes';
 import { categoriesRouter } from './categories/categories.routes';
 import { billsRouter } from './bills/bills.routes';
 import { gstRouter } from './gst/gst.routes';
+import { receiptRouter } from './receipt/receipt.routes';
 
 dotenv.config();
 
@@ -22,6 +23,7 @@ app.use('/api/items', itemsRouter);
 app.use('/api/categories', categoriesRouter);
 app.use('/api/bills', billsRouter);
 app.use('/api/gst-config', gstRouter);
+app.use('/api/receipt-layout', receiptRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

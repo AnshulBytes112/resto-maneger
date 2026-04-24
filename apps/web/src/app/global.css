@@ -49,11 +49,14 @@
   }
 }
 
-@layer base {
-  * {
-    @apply border-border;
+@layer utilities {
+  .no-print {
+    display: none !important;
   }
-  body {
-    @apply bg-background text-foreground;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
   }
 }

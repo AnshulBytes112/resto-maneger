@@ -196,5 +196,22 @@ export async function initializeDatabase(): Promise<void> {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_gst_config_category ON gst_config(category);');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_bills_status ON bills(status);');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_bills_created_at ON bills(created_at);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS receipt_layout (
+      id SERIAL PRIMARY KEY,
+      logo_url TEXT,
+      header_text TEXT,
+      footer_text TEXT,
+      show_gst_breakdown BOOLEAN NOT NULL DEFAULT true,
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    INSERT INTO receipt_layout (header_text, footer_text)
+    SELECT 'RestroManager Hotel', 'Thank you for visiting! Come again.'
+    WHERE NOT EXISTS (SELECT 1 FROM receipt_layout);
+  `);
+
   await pool.query('CREATE INDEX IF NOT EXISTS idx_bill_items_bill_id ON bill_items(bill_id);');
 }

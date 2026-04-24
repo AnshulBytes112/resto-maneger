@@ -23,6 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import apiClient from '@/services/apiClient';
+import { ReceiptData, ReceiptPrint } from '@/components/admin/receipt-print';
 
 type BillStatus = 'draft' | 'completed' | 'printed';
 
@@ -82,6 +83,8 @@ export default function BillsHistoryPage() {
   const [selectedBillId, setSelectedBillId] = useState<number | null>(null);
 
   const [isPrinting, setIsPrinting] = useState(false);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
   const grandTotalOfAll = useMemo(() => {
     return bills.reduce((sum, bill) => sum + Number(bill.grand_total), 0);
@@ -123,9 +126,16 @@ export default function BillsHistoryPage() {
     setErrorMessage(null);
 
     try {
+      // 1. Mark as printed in DB
       await apiClient.post(`/bills/${billId}/print`);
+      
+      // 2. Fetch structured receipt data
+      const response = await apiClient.get<ReceiptData>(`/bills/${billId}/receipt`);
+      setReceiptData(response.data);
+      setIsReceiptOpen(true);
+      
+      // 3. Reload list
       await loadBills();
-
       if (selectedBillId === billId) {
         await handleViewBill(billId);
       }
@@ -135,6 +145,20 @@ export default function BillsHistoryPage() {
       setIsPrinting(false);
     }
   }
+
+  // Effect to trigger print when receipt data is loaded and dialog is open
+  useEffect(() => {
+    if (isReceiptOpen && receiptData) {
+      // Use a slightly longer delay to ensure all images/fonts are loaded
+      const timer = setTimeout(() => {
+        window.print();
+        // After printing starts, we can hide the receipt view
+        // But we'll leave it for a moment so the user sees it
+        // setTimeout(() => setIsReceiptOpen(false), 2000);
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [isReceiptOpen, receiptData]);
 
   return (
     <RoleGuard allowedRoles={['superadmin', 'admin']}>
@@ -212,7 +236,7 @@ export default function BillsHistoryPage() {
                             <Button
                               size="sm"
                               onClick={() => handlePrintBill(bill.id)}
-                              disabled={isPrinting || bill.status !== 'completed'}
+                              disabled={isPrinting || bill.status === 'draft'}
                             >
                               Print
                             </Button>
@@ -305,7 +329,7 @@ export default function BillsHistoryPage() {
               )}
 
               <DialogFooter>
-                {selectedBill && selectedBill.bill.status === 'completed' && (
+                {selectedBill && selectedBill.bill.status !== 'draft' && (
                   <Button
                     onClick={() => handlePrintBill(selectedBill.bill.id)}
                     disabled={isPrinting}
@@ -321,6 +345,18 @@ export default function BillsHistoryPage() {
           </Dialog>
         </div>
       </DashboardLayout>
+
+      {isReceiptOpen && receiptData && (
+        <div className="fixed inset-0 z-[100] bg-white flex items-start justify-center overflow-auto p-4 md:p-10 no-print-background">
+          <div className="no-print absolute top-4 right-4 flex gap-2">
+            <Button onClick={() => window.print()}>Print Again</Button>
+            <Button variant="outline" onClick={() => setIsReceiptOpen(false)}>Close Preview</Button>
+          </div>
+          <div className="print:block">
+            <ReceiptPrint data={receiptData} />
+          </div>
+        </div>
+      )}
     </RoleGuard>
   );
 }

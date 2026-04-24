@@ -283,6 +283,63 @@ billsRouter.get('/:id', async (req, res) => {
   }
 });
 
+billsRouter.get('/:id/receipt', async (req, res) => {
+  const billId = Number(req.params.id);
+  if (!Number.isInteger(billId) || billId <= 0) {
+    res.status(400).json({ message: 'id must be a positive integer.' });
+    return;
+  }
+
+  try {
+    const billResult = await pool.query<BillRow>('SELECT * FROM bills WHERE id = $1;', [billId]);
+    if (billResult.rowCount === 0) {
+      res.status(404).json({ message: 'Bill not found.' });
+      return;
+    }
+
+    const itemResult = await pool.query<BillItemRow>(
+      'SELECT * FROM bill_items WHERE bill_id = $1 ORDER BY id ASC;',
+      [billId]
+    );
+
+    const layoutResult = await pool.query(
+      'SELECT logo_url, header_text, footer_text, show_gst_breakdown FROM receipt_layout LIMIT 1;'
+    );
+
+    const layout = layoutResult.rows[0] || {
+      logo_url: null,
+      header_text: 'RestroManager Hotel',
+      footer_text: 'Thank you for visiting!',
+      show_gst_breakdown: true
+    };
+
+    const bill = billResult.rows[0];
+
+    res.json({
+      bill_serial_number: bill.bill_serial_number,
+      created_at: bill.created_at,
+      header_text: layout.header_text,
+      footer_text: layout.footer_text,
+      logo_url: layout.logo_url,
+      show_gst_breakdown: layout.show_gst_breakdown,
+      items: itemResult.rows.map(item => ({
+        item_name: item.item_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        gst_rate: item.gst_rate,
+        gst_amount: item.gst_amount,
+        line_total: item.line_total
+      })),
+      subtotal: bill.subtotal,
+      gst_total: bill.gst_total,
+      grand_total: bill.grand_total
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch receipt data.';
+    res.status(400).json({ message });
+  }
+});
+
 billsRouter.post('/:id/print', async (req, res) => {
   const billId = Number(req.params.id);
   if (!Number.isInteger(billId) || billId <= 0) {
