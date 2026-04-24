@@ -18,7 +18,30 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { mockDb, MenuItem, MenuCategory, CartItem } from '@/lib/mock-api';
+import apiClient from '@/services/apiClient';
+import { ReceiptData, ReceiptPrint } from '@/components/admin/receipt-print';
+
+type MenuCategory = {
+  id: string;
+  name: string;
+  defaultGst: number;
+};
+
+type MenuItem = {
+  id: string;
+  categoryId: string;
+  name: string;
+  price: number;
+  description: string;
+  image?: string;
+  isVegetarian: boolean;
+  isAvailable: boolean;
+  gstRate?: number;
+  stockType: 'limited' | 'unlimited';
+  stockQuantity: number;
+};
+
+type CartItem = MenuItem & { quantity: number };
 
 export default function POSTerminal() {
   const [categories, setCategories] = useState<MenuCategory[]>([]);
@@ -40,13 +63,16 @@ export default function POSTerminal() {
   const [selectedWaiter, setSelectedWaiter] = useState('John Paul');
   const [guests, setGuests] = useState(4);
   const [activeWorkflow, setActiveWorkflow] = useState('categories');
+  const [receiptLayout, setReceiptLayout] = useState<any>(null);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
   const printRef = useRef<HTMLDivElement>(null);
 
   const workflowTabs = [
     { id: 'categories', label: 'POS - Categories & Items' },
     { id: 'summary', label: 'POS - Billing Summary' },
-    { id: 'gst', label: 'POS - Discount & GST' },
+    { id: 'gst', label: 'POS - Discount & GST View' },
     { id: 'payment', label: 'POS - Payment' },
     { id: 'receipt', label: 'POS - Bill Receipt' },
   ];
@@ -62,8 +88,41 @@ export default function POSTerminal() {
     const loadData = async () => {
       try {
         console.log('Loading POS data...');
-        const cats = await mockDb.getMenuCategories();
-        const allItems = await mockDb.getMenuItems();
+        const [catsResp, itemsResp] = await Promise.all([
+          apiClient.get<Array<{ id: number; name: string }>>('/categories'),
+          apiClient.get<
+            Array<{
+              id: number;
+              category: string;
+              name: string;
+              selling_price: string;
+              stock_type: 'limited' | 'unlimited';
+              stock_quantity: number;
+              is_active: boolean;
+            }>
+          >('/items', { params: { is_active: 'true' } }),
+        ]);
+
+        const cats: MenuCategory[] = (catsResp.data ?? []).map((c) => ({
+          id: String(c.id),
+          name: c.name,
+          defaultGst: 0,
+        }));
+
+        const categoryIdByName = new Map(cats.map((c) => [c.name.toLowerCase(), c.id]));
+
+        const allItems: MenuItem[] = (itemsResp.data ?? []).map((item) => ({
+          id: String(item.id),
+          categoryId: categoryIdByName.get(item.category.toLowerCase()) ?? 'unknown',
+          name: item.name,
+          price: Number(item.selling_price),
+          description: '',
+          isVegetarian: true,
+          isAvailable: item.is_active,
+          gstRate: 0,
+          stockType: item.stock_type,
+          stockQuantity: item.stock_quantity ?? 0,
+        }));
         
         console.log('Categories loaded:', cats);
         console.log('Items loaded:', allItems);
@@ -72,12 +131,30 @@ export default function POSTerminal() {
         setItems(allItems);
         setFilteredItems(allItems);
         
-        // Initialize GST rates from categories
-        const initialGstRates: { [key: string]: number } = {};
-        cats.forEach(cat => {
-          initialGstRates[cat.id] = cat.defaultGst;
-        });
-        setGstRates(initialGstRates);
+        // Initialize GST rates from configuration if possible
+        try {
+          const gstConfigResp = await apiClient.get<Array<{ category: string, gst_percentage: string, is_active: boolean }>>('/gst-config');
+          const nextGstMap: { [key: string]: number } = {};
+          (gstConfigResp.data ?? []).forEach(row => {
+            if (row.is_active) {
+              const catId = categoryIdByName.get(row.category.toLowerCase());
+              if (catId) {
+                nextGstMap[catId] = Number(row.gst_percentage);
+              }
+            }
+          });
+          setGstRates(nextGstMap);
+        } catch (e) {
+          console.error('Failed to load GST config', e);
+        }
+
+        // Load receipt layout
+        try {
+          const layoutResp = await apiClient.get('/receipt-layout');
+          setReceiptLayout(layoutResp.data);
+        } catch (e) {
+          console.error('Failed to load receipt layout', e);
+        }
         setIsLoading(false);
         
         console.log('POS data loaded successfully');
@@ -109,6 +186,13 @@ export default function POSTerminal() {
   }, [activeCategory, searchQuery, items, categories]);
 
   const addToCart = (item: MenuItem) => {
+    if (item.stockType === 'limited') {
+      const existingQty = cart.find((i) => i.id === item.id)?.quantity ?? 0;
+      if (existingQty >= item.stockQuantity) {
+        return;
+      }
+    }
+
     console.log('Adding item to cart:', item);
     setCart(prev => {
       const existing = prev.find(i => i.id === item.id);
@@ -128,7 +212,8 @@ export default function POSTerminal() {
   const updateQuantity = (itemId: string, delta: number) => {
     setCart(prev => prev.map(i => {
       if (i.id === itemId) {
-        const newQty = Math.max(0, i.quantity + delta);
+        const maxQty = i.stockType === 'limited' ? i.stockQuantity : Number.MAX_SAFE_INTEGER;
+        const newQty = Math.max(0, Math.min(maxQty, i.quantity + delta));
         return { ...i, quantity: newQty };
       }
       return i;
@@ -157,7 +242,7 @@ export default function POSTerminal() {
       const itemSubtotalAfterDiscount = itemSubtotal - itemDiscount;
       
       // Use item-specific GST if available, otherwise use category GST
-      const itemGstRate = item.gstRate || gstRates[item.categoryId] || 5;
+      const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
       const itemGst = (itemSubtotalAfterDiscount * itemGstRate) / 100;
       
       gstBreakdown[itemGstRate] = (gstBreakdown[itemGstRate] || 0) + itemGst;
@@ -179,22 +264,61 @@ export default function POSTerminal() {
 
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
-    const result = await mockDb.createOrder({ items: cart, totals, orderInfo: { orderType, selectedTable, selectedWaiter, guests } });
-    if (result.success) {
-      setOrderId(result.orderId);
-      setIsOrderPlaced(true);
-      // Navigate to order module (placeholder for now)
-      console.log('Order placed successfully, navigating to order module...');
-      // TODO: Navigate to order module when it's implemented
-      // For now, we'll show a success message and stay on POS
-      alert(`Order ${result.orderId} placed successfully! This will navigate to the order module.`);
-      // Alternative: window.location.href = '/admin/orders';
-    }
+    const generatedOrderId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+    setOrderId(generatedOrderId);
+    setIsOrderPlaced(true);
+    alert(`Order ${generatedOrderId} placed successfully! This will navigate to the order module.`);
   };
 
   const handlePrint = () => {
-    window.print();
+    const layout = receiptLayout || {
+      header_text: 'RestoManager Hotel',
+      footer_text: 'Thank you for visiting!',
+      logo_url: null,
+      show_gst_breakdown: true
+    };
+
+    const data: ReceiptData = {
+      bill_serial_number: Number(orderId.split('-')[1]) || 1024,
+      created_at: new Date().toISOString(),
+      header_text: layout.header_text,
+      footer_text: layout.footer_text,
+      logo_url: layout.logo_url,
+      show_gst_breakdown: layout.show_gst_breakdown,
+      items: cart.map(item => {
+        const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
+        const itemSubtotal = item.price * item.quantity;
+        const itemDiscount = (discountType === 'Percentage (%)') ? (itemSubtotal * discountValue) / 100 : (discountValue * itemSubtotal / totals.subtotal);
+        const itemSubtotalAfterDiscount = itemSubtotal - itemDiscount;
+        const itemGst = (itemSubtotalAfterDiscount * itemGstRate) / 100;
+        
+        return {
+          item_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.price.toString(),
+          gst_rate: itemGstRate.toString(),
+          gst_amount: itemGst.toString(),
+          line_total: (itemSubtotalAfterDiscount + itemGst).toString()
+        };
+      }),
+      subtotal: totals.subtotal.toFixed(2),
+      gst_total: totals.totalGst.toFixed(2),
+      grand_total: totals.total.toFixed(2)
+    };
+
+    setReceiptData(data);
+    setIsReceiptOpen(true);
   };
+
+  // Effect to trigger print when receipt data is loaded and dialog is open
+  useEffect(() => {
+    if (isReceiptOpen && receiptData) {
+      const timer = setTimeout(() => {
+        window.print();
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [isReceiptOpen, receiptData]);
 
   const handleShare = (method: 'whatsapp' | 'email') => {
     const message = `Order ID: ${orderId}\nTotal: Rs ${totals.total.toFixed(2)}`;
@@ -247,7 +371,7 @@ export default function POSTerminal() {
             <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400 p-6">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filteredItems.map(item => {
-                  const itemGstRate = item.gstRate || gstRates[item.categoryId] || 5;
+                  const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
                   const isInCart = cart.find(cartItem => cartItem.id === item.id);
                   return (
                     <Card 
@@ -342,7 +466,7 @@ export default function POSTerminal() {
                 {/* Items List */}
                 <div className="space-y-2">
                   {cart.map(item => {
-                    const itemGstRate = item.gstRate || gstRates[item.categoryId] || 5;
+                    const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
                     const itemSubtotal = item.price * item.quantity;
                     return (
                       <div key={item.id} className="grid grid-cols-12 items-center py-2 border-b">
@@ -385,10 +509,10 @@ export default function POSTerminal() {
       case 'gst':
         return (
           <div className="flex flex-col gap-4 h-full">
-            {/* GST Rates Panel */}
+            {/* GST Rates Display */}
             <Card className="border shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg">GST Rates (Editable)</CardTitle>
+                <CardTitle className="text-lg">GST Rates (Read-Only)</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -399,8 +523,8 @@ export default function POSTerminal() {
                         <Input 
                           type="number" 
                           value={gstRates[cat.id] || cat.defaultGst}
-                          onChange={(e) => setGstRates(prev => ({ ...prev, [cat.id]: Number(e.target.value) }))}
-                          className="h-9 text-sm"
+                          disabled
+                          className="h-9 text-sm bg-gray-100"
                           min="0"
                           max="100"
                           step="0.5"
@@ -410,6 +534,9 @@ export default function POSTerminal() {
                     </div>
                   ))}
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  GST rates are configured in Settings → GST Configuration
+                </p>
               </CardContent>
             </Card>
 
@@ -602,7 +729,7 @@ export default function POSTerminal() {
                 <p className="text-sm text-gray-500 text-center py-4">No items in cart</p>
               ) : (
                 cart.map(item => {
-                  const itemGstRate = item.gstRate || gstRates[item.categoryId] || 5;
+                  const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
                   const itemSubtotal = item.price * item.quantity;
                   return (
                     <div key={item.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
@@ -677,7 +804,7 @@ export default function POSTerminal() {
                   className="w-full justify-start gap-2 h-8 text-sm"
                   onClick={() => setActiveWorkflow('gst')}
                 >
-                  <Percent size={14} /> GST Settings
+                  <Percent size={14} /> View GST Rates
                 </Button>
               </div>
             </div>
@@ -829,45 +956,41 @@ export default function POSTerminal() {
           </div>
         </div>
 
-        <style jsx global>{`
-          @media print {
-            body * {
-              visibility: hidden;
-            }
-            .print-receipt, .print-receipt * {
-              visibility: visible;
-            }
-            .print-receipt {
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: 80mm !important;
-              box-shadow: none !important;
-              border: none !important;
-            }
-          }
-          
-          /* Custom scrollbar styles */
-          .scrollbar-thin::-webkit-scrollbar {
-            width: 6px;
-          }
-          .scrollbar-thin::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 3px;
-          }
-          .scrollbar-thin::-webkit-scrollbar-thumb {
-            background: #c1c1c1;
-            border-radius: 3px;
-          }
-          .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-            background: #a8a8a8;
-          }
-          .scrollbar-thin {
-            scrollbar-width: thin;
-            scrollbar-color: #c1c1c1 #f1f1f1;
-          }
-        `}</style>
       </DashboardLayout>
+
+      {isReceiptOpen && receiptData && (
+        <div className="fixed inset-0 z-[100] bg-white flex items-start justify-center overflow-auto p-4 md:p-10 no-print-background">
+          <div className="no-print absolute top-4 right-4 flex gap-2">
+            <Button onClick={() => window.print()}>Print Again</Button>
+            <Button variant="outline" onClick={() => setIsReceiptOpen(false)}>Close Preview</Button>
+          </div>
+          <div className="print:block">
+            <ReceiptPrint data={receiptData} />
+          </div>
+        </div>
+      )}
+
+      <style jsx global>{`
+        /* Custom scrollbar styles */
+        .scrollbar-thin::-webkit-scrollbar {
+          width: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+          background: #c1c1c1;
+          border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+          background: #a8a8a8;
+        }
+        .scrollbar-thin {
+          scrollbar-width: thin;
+          scrollbar-color: #c1c1c1 #f1f1f1;
+        }
+      `}</style>
     </RoleGuard>
   );
 }
