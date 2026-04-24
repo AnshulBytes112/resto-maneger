@@ -102,7 +102,7 @@ export default function POSTerminal() {
         const cats: MenuCategory[] = (catsResp.data ?? []).map((c) => ({
           id: String(c.id),
           name: c.name,
-          defaultGst: 5,
+          defaultGst: 0,
         }));
 
         const categoryIdByName = new Map(cats.map((c) => [c.name.toLowerCase(), c.id]));
@@ -115,7 +115,7 @@ export default function POSTerminal() {
           description: '',
           isVegetarian: true,
           isAvailable: item.is_active,
-          gstRate: 5,
+          gstRate: 0,
           stockType: item.stock_type,
           stockQuantity: item.stock_quantity ?? 0,
         }));
@@ -127,12 +127,22 @@ export default function POSTerminal() {
         setItems(allItems);
         setFilteredItems(allItems);
         
-        // Initialize GST rates from categories
-        const initialGstRates: { [key: string]: number } = {};
-        cats.forEach(cat => {
-          initialGstRates[cat.id] = cat.defaultGst;
-        });
-        setGstRates(initialGstRates);
+        // Initialize GST rates from configuration if possible
+        try {
+          const gstConfigResp = await apiClient.get<Array<{ category: string, gst_percentage: string, is_active: boolean }>>('/gst-config');
+          const nextGstMap: { [key: string]: number } = {};
+          (gstConfigResp.data ?? []).forEach(row => {
+            if (row.is_active) {
+              const catId = categoryIdByName.get(row.category.toLowerCase());
+              if (catId) {
+                nextGstMap[catId] = Number(row.gst_percentage);
+              }
+            }
+          });
+          setGstRates(nextGstMap);
+        } catch (e) {
+          console.error('Failed to load GST config', e);
+        }
         setIsLoading(false);
         
         console.log('POS data loaded successfully');
@@ -220,7 +230,7 @@ export default function POSTerminal() {
       const itemSubtotalAfterDiscount = itemSubtotal - itemDiscount;
       
       // Use item-specific GST if available, otherwise use category GST
-      const itemGstRate = item.gstRate || gstRates[item.categoryId] || 5;
+      const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
       const itemGst = (itemSubtotalAfterDiscount * itemGstRate) / 100;
       
       gstBreakdown[itemGstRate] = (gstBreakdown[itemGstRate] || 0) + itemGst;
@@ -303,7 +313,7 @@ export default function POSTerminal() {
             <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400 p-6">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filteredItems.map(item => {
-                  const itemGstRate = item.gstRate || gstRates[item.categoryId] || 5;
+                  const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
                   const isInCart = cart.find(cartItem => cartItem.id === item.id);
                   return (
                     <Card 
@@ -398,7 +408,7 @@ export default function POSTerminal() {
                 {/* Items List */}
                 <div className="space-y-2">
                   {cart.map(item => {
-                    const itemGstRate = item.gstRate || gstRates[item.categoryId] || 5;
+                    const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
                     const itemSubtotal = item.price * item.quantity;
                     return (
                       <div key={item.id} className="grid grid-cols-12 items-center py-2 border-b">
@@ -658,7 +668,7 @@ export default function POSTerminal() {
                 <p className="text-sm text-gray-500 text-center py-4">No items in cart</p>
               ) : (
                 cart.map(item => {
-                  const itemGstRate = item.gstRate || gstRates[item.categoryId] || 5;
+                  const itemGstRate = item.gstRate || gstRates[item.categoryId] || 0;
                   const itemSubtotal = item.price * item.quantity;
                   return (
                     <div key={item.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">

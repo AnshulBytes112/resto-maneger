@@ -28,7 +28,7 @@ type CatalogItem = {
 type GstConfig = {
   id: number;
   category: string;
-  gst_rate: string;
+  gst_percentage: string;
 };
 
 type BillDraftLine = {
@@ -92,7 +92,7 @@ export default function BillingPage() {
 
   const billPreview = useMemo(() => {
     const lines = billLines.map((line) => {
-      const gstRate = gstMap[line.category.toLowerCase()] ?? 5;
+      const gstRate = gstMap[line.category.toLowerCase()] ?? 0;
       const base = line.unit_price * line.quantity;
       const gstAmount = (base * gstRate) / 100;
       const lineTotal = base + gstAmount;
@@ -124,7 +124,7 @@ export default function BillingPage() {
     try {
       const [itemResponse, gstResponse] = await Promise.all([
         apiClient.get<CatalogItem[]>('/items', { params: { is_active: 'true' } }),
-        apiClient.get<GstConfig[]>('/gst/config'),
+        apiClient.get<GstConfig[]>('/gst-config'),
       ]);
 
       const activeItems = (itemResponse.data ?? []).filter((item) => item.is_active);
@@ -132,7 +132,7 @@ export default function BillingPage() {
 
       const nextGstMap: Record<string, number> = {};
       for (const row of gstResponse.data ?? []) {
-        nextGstMap[row.category.toLowerCase()] = Number(row.gst_rate);
+        nextGstMap[row.category.toLowerCase()] = Number(row.gst_percentage);
       }
       setGstMap(nextGstMap);
     } catch (error: any) {

@@ -91,8 +91,9 @@ export async function initializeDatabase(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS gst_config (
       id SERIAL PRIMARY KEY,
-      category VARCHAR NOT NULL UNIQUE,
-      gst_rate NUMERIC(5,2) NOT NULL,
+      label VARCHAR NOT NULL,
+      category VARCHAR NOT NULL,
+      gst_percentage NUMERIC(5,2) NOT NULL CHECK (gst_percentage >= 0),
       is_active BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -100,10 +101,28 @@ export async function initializeDatabase(): Promise<void> {
   `);
 
   await pool.query(`
-    INSERT INTO gst_config (category, gst_rate)
-    SELECT c.name, 5.00
+    ALTER TABLE gst_config ADD COLUMN IF NOT EXISTS label VARCHAR;
+  `);
+
+  await pool.query(`
+    UPDATE gst_config SET label = category WHERE label IS NULL;
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='gst_config' AND column_name='gst_rate') THEN
+        ALTER TABLE gst_config RENAME COLUMN gst_rate TO gst_percentage;
+      END IF;
+    END
+    $$;
+  `);
+
+  await pool.query(`
+    INSERT INTO gst_config (label, category, gst_percentage)
+    SELECT c.name, c.name, 5.00
     FROM categories c
-    ON CONFLICT (category) DO NOTHING;
+    ON CONFLICT DO NOTHING;
   `);
 
   await pool.query(`

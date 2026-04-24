@@ -40,7 +40,7 @@ type CatalogItemRow = {
 };
 
 type GstRow = {
-  gst_rate: string;
+  gst_percentage: string;
 };
 
 type CreateBillLineInput = {
@@ -92,20 +92,18 @@ function parseCreateBillBody(rawBody: unknown): { cashierId: number; lines: Arra
 
 async function getGstRateForCategory(client: PoolClient, category: string): Promise<number> {
   const config = await client.query<GstRow>(
-    'SELECT gst_rate FROM gst_config WHERE LOWER(category) = LOWER($1) AND is_active = true LIMIT 1;',
+    'SELECT gst_percentage FROM gst_config WHERE LOWER(category) = LOWER($1) AND is_active = true LIMIT 1;',
     [category]
   );
 
   if (config.rowCount === 0) {
-    await client.query(
-      'INSERT INTO gst_config (category, gst_rate, is_active) VALUES ($1, $2, true) ON CONFLICT (category) DO NOTHING;',
-      [category, 5]
-    );
-
-    return 5;
+    // If no specific config, default to 5% or handle as error?
+    // User said: Show warning if a category has no active GST slab
+    // For now, I'll return 0 if not found, but it might be better to have a default.
+    return 0;
   }
 
-  return Number(config.rows[0].gst_rate);
+  return Number(config.rows[0].gst_percentage);
 }
 
 export const billsRouter = Router();

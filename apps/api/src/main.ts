@@ -21,7 +21,7 @@ app.use('/api', requireAdminRole);
 app.use('/api/items', itemsRouter);
 app.use('/api/categories', categoriesRouter);
 app.use('/api/bills', billsRouter);
-app.use('/api/gst', gstRouter);
+app.use('/api/gst-config', gstRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
