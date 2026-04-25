@@ -484,20 +484,21 @@ export default function BillingPage() {
           </div>
         </div>
 
-        {isReceiptOpen && receiptData && (
-          <div className="fixed inset-0 z-[100] bg-white flex items-start justify-center overflow-auto p-4 md:p-10 no-print-background">
-            <div className="no-print absolute top-4 right-4 flex gap-2">
-              <Button onClick={() => window.print()}>Print Again</Button>
-              <Button variant="outline" onClick={() => setIsReceiptOpen(false)}>
-                Close Preview
-              </Button>
-            </div>
-            <div className="print:block">
-              <ReceiptPrint data={receiptData} />
-            </div>
-          </div>
-        )}
       </DashboardLayout>
+
+      {isReceiptOpen && receiptData && (
+        <div className="fixed inset-0 z-[100] bg-white flex items-start justify-center overflow-auto p-4 md:p-10 no-print-background">
+          <div className="no-print absolute top-4 right-4 flex gap-2">
+            <Button onClick={() => window.print()}>Print Again</Button>
+            <Button variant="outline" onClick={() => setIsReceiptOpen(false)}>
+              Close Preview
+            </Button>
+          </div>
+          <div className="print:block">
+            <ReceiptPrint data={receiptData} />
+          </div>
+        </div>
+      )}
     </RoleGuard>
   );
 }
