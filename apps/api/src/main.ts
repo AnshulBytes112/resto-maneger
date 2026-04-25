@@ -22,7 +22,7 @@ app.use(cors({
   ],
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 // Health check (Public)
 app.get('/api/health', (req, res) => {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { RoleGuard } from '@/components/auth/role-guard';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Plus, Pencil, Power, PowerOff } from 'lucide-react';
+import { Plus, Pencil, Power, PowerOff, Upload, X, ImageIcon } from 'lucide-react';
 import apiClient from '@/services/apiClient';
 
 type StockType = 'limited' | 'unlimited';
@@ -38,6 +38,7 @@ type Item = {
   stock_quantity: number;
   is_active: boolean;
   stock_type: StockType;
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -55,6 +56,7 @@ type ItemForm = {
   stock_quantity: string;
   stock_type: StockType;
   is_active: boolean;
+  image_url: string | null;
 };
 
 const EMPTY_FORM: ItemForm = {
@@ -64,7 +66,53 @@ const EMPTY_FORM: ItemForm = {
   stock_quantity: '0',
   stock_type: 'limited',
   is_active: true,
+  image_url: null,
 };
+
+const MAX_IMAGE_SIZE_KB = 500;
+const MAX_IMAGE_DIMENSION = 800;
+
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+
+        if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+          if (width > height) {
+            height = Math.round((height / width) * MAX_IMAGE_DIMENSION);
+            width = MAX_IMAGE_DIMENSION;
+          } else {
+            width = Math.round((width / height) * MAX_IMAGE_DIMENSION);
+            height = MAX_IMAGE_DIMENSION;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        let quality = 0.8;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+        while (dataUrl.length > MAX_IMAGE_SIZE_KB * 1024 && quality > 0.1) {
+          quality -= 0.1;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function AdminCatalogPage() {
   const [items, setItems] = useState<Item[]>([]);
@@ -84,6 +132,10 @@ export default function AdminCatalogPage() {
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [form, setForm] = useState<ItemForm>(EMPTY_FORM);
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof ItemForm, string>>>({});
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingDeactivateItem, setPendingDeactivateItem] = useState<Item | null>(null);
@@ -148,10 +200,40 @@ export default function AdminCatalogPage() {
     loadCategories();
   }, []);
 
+  const handleImageFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage('Please select a valid image file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMessage('Image must be smaller than 5MB.');
+      return;
+    }
+    setIsUploadingImage(true);
+    try {
+      const base64 = await compressImage(file);
+      setForm((prev) => ({ ...prev, image_url: base64 }));
+      setImagePreview(base64);
+    } catch {
+      setErrorMessage('Failed to process image.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  }, []);
+
+  function removeImage() {
+    setForm((prev) => ({ ...prev, image_url: null }));
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+
   function openCreateModal() {
     setEditingItem(null);
     setForm(EMPTY_FORM);
     setFormErrors({});
+    setImagePreview(null);
     setIsFormOpen(true);
   }
 
@@ -164,8 +246,10 @@ export default function AdminCatalogPage() {
       stock_quantity: String(item.stock_quantity ?? 0),
       stock_type: item.stock_type,
       is_active: item.is_active,
+      image_url: item.image_url,
     });
     setFormErrors({});
+    setImagePreview(item.image_url);
     setIsFormOpen(true);
   }
 
@@ -210,6 +294,7 @@ export default function AdminCatalogPage() {
       category: form.category.trim(),
       stock_quantity: Number(form.stock_quantity),
       stock_type: form.stock_type,
+      image_url: form.image_url,
       ...(editingItem ? { is_active: form.is_active } : {}),
     };
 
@@ -365,6 +450,7 @@ export default function AdminCatalogPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Image</TableHead>
                     <TableHead>Serial No</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Category</TableHead>
@@ -378,19 +464,32 @@ export default function AdminCatalogPage() {
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
+                      <TableCell colSpan={9} className="h-20 text-center text-muted-foreground">
                         Loading catalog...
                       </TableCell>
                     </TableRow>
                   ) : filteredItems.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
+                      <TableCell colSpan={9} className="h-20 text-center text-muted-foreground">
                         No items found.
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredItems.map((item) => (
                       <TableRow key={item.id}>
+                        <TableCell>
+                          {item.image_url ? (
+                            <img
+                              src={item.image_url}
+                              alt={item.name}
+                              className="h-10 w-10 rounded-md object-cover border"
+                            />
+                          ) : (
+                            <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center">
+                              <ImageIcon size={16} className="text-muted-foreground" />
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">{item.serial_number}</TableCell>
                         <TableCell className="font-medium">{item.name}</TableCell>
                         <TableCell>{item.category}</TableCell>
@@ -524,6 +623,77 @@ export default function AdminCatalogPage() {
                   <option value="limited">Limited</option>
                   <option value="unlimited">Unlimited</option>
                 </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Item Image</label>
+                <div
+                  className={`relative rounded-lg border-2 border-dashed p-4 text-center transition-colors ${
+                    isDragging
+                      ? 'border-primary bg-primary/5'
+                      : 'border-input hover:border-primary/50'
+                  }`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    const file = e.dataTransfer.files[0];
+                    if (file) handleImageFile(file);
+                  }}
+                >
+                  {imagePreview ? (
+                    <div className="relative inline-block">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="mx-auto h-32 w-32 rounded-lg object-cover border"
+                      />
+                      <button
+                        type="button"
+                        onClick={removeImage}
+                        className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white shadow-md hover:bg-destructive/90 transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className="cursor-pointer py-4"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {isUploadingImage ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                          <p className="text-sm text-muted-foreground">Processing image...</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2">
+                          <Upload size={24} className="text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground">
+                            Click to upload or drag & drop
+                          </p>
+                          <p className="text-xs text-muted-foreground/70">
+                            PNG, JPG, WEBP up to 5MB
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageFile(file);
+                    }}
+                  />
+                </div>
               </div>
 
               {editingItem && (

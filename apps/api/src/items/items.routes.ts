@@ -13,6 +13,7 @@ type ItemRow = {
   stock_quantity: number;
   is_active: boolean;
   stock_type: StockType;
+  image_url: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -24,6 +25,7 @@ type ItemPayload = {
   stock_quantity?: number;
   is_active?: boolean;
   stock_type?: StockType;
+  image_url?: string | null;
 };
 
 const IMMUTABLE_FIELDS = new Set(['id', 'serial_number', 'created_at', 'updated_at']);
@@ -34,6 +36,7 @@ const ALLOWED_MUTABLE_FIELDS = new Set([
   'stock_quantity',
   'is_active',
   'stock_type',
+  'image_url',
 ]);
 
 async function ensureCategoryExists(category: string): Promise<void> {
@@ -141,6 +144,13 @@ function parseItemPayload(rawBody: unknown, allowPartial: boolean): ItemPayload 
     parsed.stock_type = body.stock_type;
   }
 
+  if ('image_url' in body) {
+    if (body.image_url !== null && typeof body.image_url !== 'string') {
+      throw new Error('image_url must be a string or null.');
+    }
+    parsed.image_url = body.image_url as string | null;
+  }
+
   if (!allowPartial) {
     if (
       !parsed.name ||
@@ -169,8 +179,8 @@ itemsRouter.post('/', async (req, res) => {
 
     const result = await pool.query<ItemRow>(
       `
-      INSERT INTO items (serial_number, name, selling_price, category, stock_quantity, is_active, stock_type)
-      VALUES ($1, $2, $3, $4, $5, COALESCE($6, true), $7)
+      INSERT INTO items (serial_number, name, selling_price, category, stock_quantity, is_active, stock_type, image_url)
+      VALUES ($1, $2, $3, $4, $5, COALESCE($6, true), $7, $8)
       RETURNING *;
       `,
       [
@@ -181,6 +191,7 @@ itemsRouter.post('/', async (req, res) => {
         payload.stock_quantity,
         payload.is_active,
         payload.stock_type,
+        payload.image_url ?? null,
       ]
     );
 

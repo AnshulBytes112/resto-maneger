@@ -89,6 +89,11 @@ export async function initializeDatabase(): Promise<void> {
   `);
 
   await pool.query(`
+    ALTER TABLE items
+    ADD COLUMN IF NOT EXISTS image_url TEXT;
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS gst_config (
       id SERIAL PRIMARY KEY,
       label VARCHAR NOT NULL,
